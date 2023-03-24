@@ -4,15 +4,15 @@
     Output on SD-Card (data logger)
     [This code is used to read and save the data from BME280 sensor and GPS module]
     Author: T. Schumann
-    Date: 2022-10-26
+    Date: 2023-03-24
 
     Dependencies:
-    TinyGPS++ - https://github.com/neosarchizo/TinyGPS
+    TinyGPS++ - https://github.com/mikalhart/TinyGPSPlus.git 
     Adafruit_Sensor - https://github.com/adafruit/Adafruit_Sensor
-    Adafruit_BME380 - https://github.com/adafruit/Adafruit_BME280_Library
+    Adafruit_BME280_Library - https://github.com/adafruit/Adafruit_BME280_Library
     SSD1306AsciiWire - https://github.com/greiman/SSD1306Ascii
 
-    All rights reserved. Copyright Tim Schumann 2022
+    All rights reserved. Copyright Tim Schumann 2023
   ===============================================
 */
 
@@ -40,7 +40,7 @@ byte sdWriteDelayCounter = 0;  //delay counter
 File logfile;
 
 bool blinkState = false;
-bool displayState = false;
+bool displayState = true;
 byte failflag = 0;
 
 static const uint32_t GPSBaud = 9600;
@@ -68,11 +68,15 @@ uint8_t rows;      // Rows per line.
 const char* label[] = { " Temp.:", " Hum.:", " Time:", " B.|S.:" };
 const char* units[] = { "C", "%", " ", " " };
 
+uint8_t ClearConfig[] = { 0xB5, 0x62, 0x06, 0x09, 0x0D, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x19, 0x98 };
+uint8_t SetPSM[] = { 0xB5, 0x62, 0x06, 0x11, 0x02, 0x00, 0x08, 0x01, 0x22, 0x92 };
+uint8_t SetPlatform[] = { 0xB5, 0x62, 0x06, 0x24, 0x24, 0x00, 0xFF, 0xFF, 0x07, 0x03, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00, 0x05, 0x00, 0xFA, 0x00, 0xFA, 0x00, 0x64, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E, 0xFD };
+uint8_t SaveConfig[] = { 0xB5, 0x62, 0x06, 0x09, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x1D, 0xAB };
+
+
 void setup() {
   Wire.begin();
 #ifdef ENLOG
-  // connect at 115200 so we can read the GPS fast enough and echo without dropping chars
-  // also spit it out
   Serial.begin(115200);
 
   Serial.println("\r\nAdalog logger test");
@@ -85,6 +89,14 @@ void setup() {
   pinMode(PowerLED, OUTPUT);
   digitalWrite(InternalPowerLED, HIGH);
   digitalWrite(PowerLED, HIGH);
+  delay(100);
+  digitalWrite(InternalPowerLED, LOW);
+  delay(500);
+  digitalWrite(InternalPowerLED, HIGH);
+  delay(100);
+  digitalWrite(InternalPowerLED, LOW);
+  delay(500);
+  digitalWrite(InternalPowerLED, HIGH);
 
   //start GPS
   Serial1.begin(GPSBaud);
@@ -93,7 +105,7 @@ void setup() {
   //start OLED
   oled.begin(&Adafruit128x64, 0x3C);
   oled.setFont(Callibri15);
-  oled.setLetterSpacing(2);
+  oled.setLetterSpacing(3);
   oled.clear();
 
   // Setup form and find longest label.
@@ -154,9 +166,21 @@ void setup() {
   if (!status) {
     error(5);
   }
+  delay(200);
+
+  sendUBX(ClearConfig, sizeof(ClearConfig) / sizeof(uint8_t));
+
+  delay(1000);
+
+  sendUBX(SetPlatform, sizeof(SetPlatform) / sizeof(uint8_t));
+  sendUBX(SaveConfig, sizeof(SaveConfig) / sizeof(uint8_t));
+  delay(200);
 }
 
 void loop() {
+  if (millis() > 4000 && gps.charsProcessed() < 50) {
+    error(10);
+  }
   // Dispatch incoming characters
   while (Serial1.available() > 0)
     gps.encode(Serial1.read());
@@ -168,7 +192,7 @@ void loop() {
 
 
   if (firstlock == 0 && gps.satellites.value() > 4) {
-    setupGPSpower();
+    sendUBX(SetPSM, sizeof(SetPSM) / sizeof(uint8_t));
     firstlock = 1;
 #ifdef ENLOG
     Serial.println("PowerMode Changed");
@@ -321,16 +345,26 @@ void sendUBX(uint8_t* MSG, uint8_t len) {
   //Serial.println();
 }
 
-void setupGPSpower() {
-  //Set GPS ot Power Save Mode
-  uint8_t setPSM[] = { 0xB5, 0x62, 0x06, 0x11, 0x02, 0x00, 0x08, 0x01, 0x22, 0x92 };  // Setup for Power Save Mode (Default Cyclic 1s)
-  //save Default mode: Max Performance Mode (default): 0xB5, 0x62, 0x06, 0x11, 0x02, 0x00, 0x08, 0x00, 0x21, 0x91
-
-  sendUBX(setPSM, sizeof(setPSM) / sizeof(uint8_t));
-}
 
 // blink out an error code
 void error(uint8_t errno) {
+  oled.clear();
+  oled.setFont(Adafruit5x7);
+  oled.set2X();
+  oled.print("\n ");
+  switch (errno) {
+    case 5:
+      oled.println("BME-ERROR");
+      break;
+    case 2:
+    case 3:
+      oled.println("SD-Error");
+      break;
+    case 10:
+      oled.println("GPS-Error");
+      break;
+  }
+  oled.println("   !!!!");
   while (1) {
     uint8_t i;
     for (i = 0; i < errno; i++) {
@@ -351,4 +385,4 @@ void clearValue(uint8_t row) {
 }
 
 
-//en
+//end
