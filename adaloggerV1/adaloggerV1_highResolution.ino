@@ -31,10 +31,10 @@ byte sdWriteDelayCounter = 0;  //delay counter
 
 // Set the pins used
 #define cardSelect 4
-#define PowerLED 7
+#define PowerLED 6
 #define InternalPowerLED 13
 #define SDLED 8
-#define GPSLED 6
+#define GPSLED 5
 #define VBATPIN A7
 
 File logfile;
