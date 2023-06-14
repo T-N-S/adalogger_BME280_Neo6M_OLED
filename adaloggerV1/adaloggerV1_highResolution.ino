@@ -7,7 +7,7 @@
     Date: 2023-03-24
 
     Dependencies:
-    TinyGPS++ - https://github.com/mikalhart/TinyGPSPlus.git 
+    TinyGPS++ - https://github.com/mikalhart/TinyGPSPlus.git
     Adafruit_Sensor - https://github.com/adafruit/Adafruit_Sensor
     Adafruit_BME280_Library - https://github.com/adafruit/Adafruit_BME280_Library
     SSD1306AsciiWire - https://github.com/greiman/SSD1306Ascii
@@ -26,8 +26,8 @@
 
 //#define ENLOG
 
-int definedDelay = 4;          //set Delay between measurements
-byte sdWriteDelayCounter = 0;  //delay counter
+long definedDelay = 100;  //set Delay between measurements
+long previousMillis = 0;  // Time since last write
 
 // Set the pins used
 #define cardSelect 4
@@ -91,11 +91,11 @@ void setup() {
   digitalWrite(PowerLED, HIGH);
   delay(100);
   digitalWrite(InternalPowerLED, LOW);
-  delay(500);
+  delay(300);
   digitalWrite(InternalPowerLED, HIGH);
   delay(100);
   digitalWrite(InternalPowerLED, LOW);
-  delay(500);
+  delay(300);
   digitalWrite(InternalPowerLED, HIGH);
 
   //start GPS
@@ -181,13 +181,15 @@ void loop() {
   if (millis() > 4000 && gps.charsProcessed() < 50) {
     error(10);
   }
+  long currentMillis = millis();
+  long elapsedMillis = currentMillis - previousMillis;
   // Dispatch incoming characters
   while (Serial1.available() > 0)
     gps.encode(Serial1.read());
 
-  if (sdWriteDelayCounter > definedDelay) {
+  if (elapsedMillis >= definedDelay) {
+    previousMillis = currentMillis;  // Reset the previous time
     sdwrite();
-    sdWriteDelayCounter = 0;
   }
 
 
@@ -201,7 +203,6 @@ void loop() {
     START_LAT = gps.location.lat();
     START_LON = gps.location.lng();
   }
-  sdWriteDelayCounter++;
   delay(100);
 }
 
@@ -215,7 +216,7 @@ void sdwrite() {
 
   logfile = SD.open(filename, FILE_WRITE);
   if (logfile) {
-    digitalWrite(8, HIGH);
+    digitalWrite(SDLED, HIGH);
     logfile.print(++count);
     logfile.print(", ");
     logfile.print(millis());
@@ -327,7 +328,7 @@ void sdwrite() {
   Serial.println(voltageMapped);
 #endif
 
-  digitalWrite(8, LOW);
+  digitalWrite(SDLED, LOW);
 
   if (gps.altitude.meters()) {  // && bme.readTemperature() != 0) {
     blinkState = !blinkState;
@@ -368,9 +369,11 @@ void error(uint8_t errno) {
   while (1) {
     uint8_t i;
     for (i = 0; i < errno; i++) {
-      digitalWrite(13, HIGH);
+      digitalWrite(InternalPowerLED, HIGH);
+      digitalWrite(PowerLED, HIGH);
       delay(100);
-      digitalWrite(13, LOW);
+      digitalWrite(InternalPowerLED, LOW);
+      digitalWrite(PowerLED, LOW);
       delay(100);
     }
     for (i = errno; i < 10; i++) {
